@@ -1,0 +1,35 @@
+# Claude / AI assistant
+.claude/
+CLAUDE.md
+CLAUDE.local.md
+AGENTS.md
+.omc/
+.mcp.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor / IDE
+.idea/
+.vscode/
+*.iml
+*.swp
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Logs
+*.log
+logs/
+
+# Dependencies / build
+node_modules/
+dist/
+build/
+out/
+coverage/
