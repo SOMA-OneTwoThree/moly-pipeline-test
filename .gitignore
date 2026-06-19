@@ -33,3 +33,9 @@ dist/
 build/
 out/
 coverage/
+
+# Next.js
+.next/
+next-env.d.ts
+.vercel/
+*.tsbuildinfo
