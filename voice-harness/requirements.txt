@@ -1,0 +1,12 @@
+# voice-harness — STT→LLM→TTS 파이프라인 측정 도구
+openai>=1.40.0          # STT(gpt-4o-transcribe) + TTS(gpt-4o-mini-tts)
+httpx>=0.27.0           # moly-server /api/chat SSE 소비
+websocket-client>=1.7.0 # OpenAI Realtime STT (WebSocket 실시간 전사)
+python-dotenv>=1.0.0    # .env 로드
+sounddevice>=0.4.6      # 마이크 입력 / 스피커 재생 (Phase 3)
+soundfile>=0.12.1       # wav 읽기/쓰기
+numpy>=1.26.0           # 오디오 버퍼 처리
+
+# --- 선택/개발용 (런타임 핵심 경로에는 불필요) ---
+matplotlib>=3.8.0       # cost_model --plot (지연 임포트; 없으면 --plot만 비활성)
+pytest>=8.0.0           # tests/ 실행 (pytest tests/ -q)
