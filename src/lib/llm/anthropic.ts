@@ -64,6 +64,18 @@ export class AnthropicProvider implements LLMProvider {
       if (final.stop_reason === 'refusal') {
         throw new Error('LLM refused to respond (stop_reason=refusal)');
       }
+
+      // 정상 종료 직전 토큰 usage 1회 보고(비용·tokens/sec 측정용). 키/내용은 로깅하지 않음.
+      if (opts?.onUsage) {
+        const u = final.usage;
+        opts.onUsage({
+          model: this.model,
+          input_tokens: u?.input_tokens ?? 0,
+          output_tokens: u?.output_tokens ?? 0,
+          cache_read_input_tokens: u?.cache_read_input_tokens ?? undefined,
+          cache_creation_input_tokens: u?.cache_creation_input_tokens ?? undefined,
+        });
+      }
       // end_turn / stop_sequence / max_tokens / 빈 응답(text_delta 0개) → 정상 종료 → 코어가 done.
     } catch (err) {
       if (opts?.signal?.aborted) return; // 취소는 정상 종료로 간주(에러 아님)

@@ -47,16 +47,25 @@ def main() -> int:
             m = run_turn(cfg, stt, tts, audio_path=path, input_label=label)
             print("\n".join(m.summary_lines()))
             if "cost_usd" in m.extra:
-                cl = m.extra.get("cost_lines", {})
-                parts = " · ".join(f"{k} ${v:.4f}" for k, v in cl.items())
-                print(f"  💲 부분 실측 비용: ${m.extra['cost_usd']:.4f}  ({parts})")
+                print(
+                    f"  💲 실측 비용: ${m.extra['cost_usd']:.5f}  "
+                    f"(STT ${m.extra.get('cost_stt', 0):.5f} · "
+                    f"LLM ${m.extra.get('cost_llm', 0):.5f} · "
+                    f"TTS ${m.extra.get('cost_tts', 0):.5f})"
+                )
+            if m.llm_out_tok is not None:
+                tps = m.tokens_per_sec
+                print(
+                    f"  🔤 LLM 토큰 in/out {m.llm_in_tok}/{m.llm_out_tok}"
+                    + (f" · {tps} tok/s" if tps else "")
+                )
             if m.error:
                 any_error = True
                 print(f"  ⚠️ 오류: {m.error}")
             if m.audio_out_path:
-                print(f"  🔊 합성 오디오: {m.audio_out_path}")
-            jp, cp = write_outputs(m, cfg.out_dir)
-            print(f"  📄 {jp}  |  CSV: {cp}")
+                print(f"  🔊 음성: {m.audio_out_path}")
+            cp = write_outputs(m, cfg.out_dir)
+            print(f"  📄 CSV: {cp}")
             print("-" * 64)
 
     return 1 if any_error else 0

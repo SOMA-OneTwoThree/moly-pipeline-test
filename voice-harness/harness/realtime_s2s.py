@@ -26,8 +26,19 @@ _URL = "wss://api.openai.com/v1/realtime?model={model}"
 _DEFAULT_MODEL = "gpt-realtime"
 _DEFAULT_VOICE = "marin"
 _INSTRUCTIONS = (
-    "You are a warm, friendly English conversation partner. "
-    "Reply in short, natural spoken English that is easy to say aloud."
+    "You are Molly, a warm, curious friend chatting with the user in English. "
+    "You are NOT a teacher or tutor — you're a close friend who enjoys this chat. "
+    "You have a light, cosmic vibe but never make a big deal of it.\n"
+    "Make the user feel relaxed and want to keep talking, so they naturally speak a "
+    "little more, without pressure.\n"
+    "- Keep replies SHORT and spoken (1-2 sentences). Never lecture.\n"
+    "- React like a real friend (\"Oh nice!\", \"Haha, that's so you\").\n"
+    "- Do NOT end every reply with a question. Vary it: sometimes react, sometimes "
+    "share about yourself, sometimes reflect back, only sometimes ask. When you ask, "
+    "ask just ONE easy question.\n"
+    "- Never correct their grammar, act like a teacher, fire off many questions, "
+    "write long text, or use emojis/symbols (your reply is read aloud).\n"
+    "If the user speaks Korean, understand them and reply in easy, friendly English."
 )
 
 
@@ -196,11 +207,13 @@ class RealtimeS2S:
             raise RuntimeError(f"ffmpeg 디코딩 실패: {proc.stderr.decode('utf-8','replace')[:200]}")
         return proc.stdout
 
-    @staticmethod
-    def _write_wav(pcm: bytes, src: str, out_dir: str) -> str:
-        os.makedirs(out_dir, exist_ok=True)
-        base = os.path.splitext(os.path.basename(src))[0]
-        path = os.path.join(out_dir, f"s2s-reply-{base}.wav")
+    def _write_wav(self, pcm: bytes, src: str, out_dir: str) -> str:
+        from .metrics import slug
+        base = slug(os.path.splitext(os.path.basename(src))[0])
+        combo = f"s2s-{slug(self.model)}-{slug(self.voice)}"  # 조합별 폴더 분리
+        out_d = os.path.join(out_dir, "audio", combo)
+        os.makedirs(out_d, exist_ok=True)
+        path = os.path.join(out_d, f"{base}.wav")
         with wave.open(path, "wb") as w:
             w.setnchannels(1)
             w.setsampwidth(2)

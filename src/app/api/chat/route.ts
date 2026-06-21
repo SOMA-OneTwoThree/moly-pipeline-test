@@ -1,6 +1,7 @@
 export const runtime = 'nodejs';
 
 import { generateReplyStream } from '@/lib/chat/service';
+import type { TokenUsage } from '@/lib/llm';
 
 /** 입력 상한(문자 수). 초과 시 스트림 시작 전 400. */
 const MAX_INPUT_LENGTH = 4000;
@@ -39,7 +40,14 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   const signal = request.signal;
-  const iterator = generateReplyStream(text, { signal })[Symbol.asyncIterator]();
+  // LLM provider가 종료 직전 보고하는 토큰 usage를 캡처해 done 이벤트에 실어준다(비용·tokens/sec 측정용).
+  let usage: TokenUsage | null = null;
+  const iterator = generateReplyStream(text, {
+    signal,
+    onUsage: (u) => {
+      usage = u;
+    },
+  })[Symbol.asyncIterator]();
 
   // 2) 첫 결과를 미리 당긴다(prime). async generator는 지연 평가라
   //    provider 구성 오류(알 수 없는 provider/키 누락)는 첫 next()에서야 throw된다.
@@ -63,7 +71,7 @@ export async function POST(request: Request): Promise<Response> {
       }
       if (first.done) {
         // 빈 응답(delta 0개) → done:true = 성공.
-        controller.enqueue(sse({ done: true }));
+        controller.enqueue(sse(usage ? { done: true, usage } : { done: true }));
         controller.close();
       } else {
         controller.enqueue(sse({ delta: first.value }));
@@ -77,7 +85,7 @@ export async function POST(request: Request): Promise<Response> {
         }
         const { value, done } = await iterator.next();
         if (done) {
-          controller.enqueue(sse({ done: true }));
+          controller.enqueue(sse(usage ? { done: true, usage } : { done: true }));
           controller.close();
           return;
         }

@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import Iterator, Optional
+from typing import Callable, Iterator, Optional
 
 import httpx
 
@@ -26,10 +26,15 @@ class Delta:
     text: str
 
 
-def stream_chat(url: str, text: str, timeout: float = 60.0) -> Iterator[str]:
+def stream_chat(
+    url: str,
+    text: str,
+    timeout: float = 60.0,
+    on_usage: Optional[Callable[[dict], None]] = None,
+) -> Iterator[str]:
     """text를 보내고 delta 문자열을 순서대로 yield.
 
-    정상 종료: 제너레이터 자연 종료(done 수신).
+    정상 종료: 제너레이터 자연 종료(done 수신). done 이벤트에 usage가 있으면 on_usage(usage) 호출.
     비정상 종료: LLMStreamError raise(error 수신 — 단, 직전까지 yield된 delta는 유효).
     """
     buf = ""
@@ -61,6 +66,8 @@ def stream_chat(url: str, text: str, timeout: float = 60.0) -> Iterator[str]:
                     if "error" in payload:
                         raise LLMStreamError(str(payload["error"]))
                     if payload.get("done"):
+                        if on_usage and isinstance(payload.get("usage"), dict):
+                            on_usage(payload["usage"])
                         return
                     if "delta" in payload and payload["delta"]:
                         yield payload["delta"]
