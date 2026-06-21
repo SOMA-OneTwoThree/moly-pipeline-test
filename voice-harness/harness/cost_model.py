@@ -201,27 +201,59 @@ def cost_stt_from_usage(usage: dict, r: Rates = Rates()) -> float:
     return (in_tok * r.stt_in_per_mtok + out_tok * r.stt_out_per_mtok) / 1e6
 
 
+# 모델별 LLM 단가 (per MTok: 입력, 출력, 캐시읽기). ⚠ Haiku는 추정 — deep-research로 검증 예정.
+_LLM_RATES: dict[str, tuple[float, float, float]] = {
+    "sonnet": (3.0, 15.0, 0.30),
+    "haiku": (1.0, 5.0, 0.10),
+    "gemini-flash-lite": (0.10, 0.40, 0.01),  # Gemini 2.5 Flash-Lite
+    "gemini-flash": (0.30, 2.50, 0.075),      # Gemini 2.5 Flash (근사)
+}
+
+
+def _llm_rate(model: str) -> tuple[float, float, float]:
+    m = (model or "").lower()
+    if "gemini" in m:
+        return _LLM_RATES["gemini-flash-lite"] if "lite" in m else _LLM_RATES["gemini-flash"]
+    if "haiku" in m:
+        return _LLM_RATES["haiku"]
+    return _LLM_RATES["sonnet"]  # 기본/sonnet
+
+
+def cost_llm_from_usage(usage: dict, model: str = "") -> float:
+    """moly-server done 이벤트의 token usage로 정확 LLM 비용(USD). 모델명으로 단가 선택."""
+    in_tok = usage.get("input_tokens", 0) or 0
+    out_tok = usage.get("output_tokens", 0) or 0
+    cache_read = usage.get("cache_read_input_tokens", 0) or 0
+    in_rate, out_rate, cache_rate = _llm_rate(model)
+    paid_in = max(0, in_tok - cache_read)  # 캐시분은 캐시 단가로 별도 청구
+    return (paid_in * in_rate + cache_read * cache_rate + out_tok * out_rate) / 1e6
+
+
 def cost_tts_from_chars(n_chars: int, r: Rates = Rates()) -> float:
     """tts-1 정확 비용(USD) — 입력 문자수 × $/1M자. TTS는 usage 미제공이라 문자수가 정답."""
     return max(0, n_chars) * r.tts_per_mchar / 1e6
 
 
 def cost_pipeline_measured(stt_usage: dict | None, reply_text: str,
-                           r: Rates = Rates()) -> Breakdown:
-    """파이프라인 실측 비용. STT=usage(있으면 정확), TTS=문자수(정확), LLM=미측정(0, ⚠).
+                           r: Rates = Rates(), *,
+                           llm_usage: dict | None = None, llm_model: str = "") -> Breakdown:
+    """파이프라인 실측 비용. STT=usage, TTS=문자수.
 
-    moly-server가 토큰 usage를 안 주므로 LLM 라인은 0이며 별도 표기. STT usage가 없으면
-    STT도 0(러너에서 추정으로 보완 가능).
+    LLM은 llm_usage(moly-server done 이벤트로 노출)를 주면 모델별 단가로 실측, 없으면 0.
+    pipeline.run_turn은 컴포넌트 함수(cost_*_from_usage)를 직접 호출하므로 이 헬퍼는
+    CLI/요약/테스트용 편의 함수다. (기본 호출 시 LLM 라인=0 → 키 '미측정' 유지)
     """
     stt = cost_stt_from_usage(stt_usage, r) if stt_usage else 0.0
     tts = cost_tts_from_chars(len(reply_text or ""), r)
+    llm = cost_llm_from_usage(llm_usage, llm_model) if llm_usage else 0.0
+    llm_key = "LLM (usage 실측)" if llm_usage else "LLM (미측정·moly-server)"
     lines = {
         "STT (usage 실측)": stt,
-        "LLM (미측정·moly-server)": 0.0,
+        llm_key: llm,
         "TTS (문자수 실측)": tts,
     }
     total = sum(lines.values())
-    return Breakdown("Pipeline  (부분 실측: STT+TTS)", total, total, lines)
+    return Breakdown("Pipeline  (실측)", total, total, lines)
 
 
 def compare(s: Scenario, r: Rates = Rates()) -> dict:

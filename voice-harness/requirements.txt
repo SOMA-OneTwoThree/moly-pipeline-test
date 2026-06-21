@@ -10,3 +10,4 @@ numpy>=1.26.0           # 오디오 버퍼 처리
 # --- 선택/개발용 (런타임 핵심 경로에는 불필요) ---
 matplotlib>=3.8.0       # cost_model --plot (지연 임포트; 없으면 --plot만 비활성)
 pytest>=8.0.0           # tests/ 실행 (pytest tests/ -q)
+jiwer>=3.0.0            # WER/CER 계산 (score_wer.py)

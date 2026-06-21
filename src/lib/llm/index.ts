@@ -1,8 +1,9 @@
 import 'server-only';
 import type { LLMProvider } from './types';
 import { AnthropicProvider } from './anthropic';
+import { GeminiProvider } from './gemini';
 
-export type { ChatMessage, LLMOptions, LLMProvider } from './types';
+export type { ChatMessage, LLMOptions, LLMProvider, TokenUsage } from './types';
 
 /**
  * env `LLM_PROVIDER`로 provider를 선택한다(기본 `anthropic`).
@@ -20,7 +21,12 @@ export function getProvider(): LLMProvider {
         );
       }
       return new AnthropicProvider();
+    case 'gemini':
+      if (!process.env.GEMINI_API_KEY) {
+        throw new Error('LLM_PROVIDER=gemini 인데 GEMINI_API_KEY가 없습니다. .env에 키를 주입하세요.');
+      }
+      return new GeminiProvider();
     default:
-      throw new Error(`알 수 없는 LLM_PROVIDER: "${name}" (사용 가능: anthropic)`);
+      throw new Error(`알 수 없는 LLM_PROVIDER: "${name}" (사용 가능: anthropic, gemini)`);
   }
 }

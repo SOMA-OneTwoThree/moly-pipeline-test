@@ -17,10 +17,25 @@ def get_stt_provider(cfg: Config) -> STTProvider:
             raise RuntimeError("STT_PROVIDER=openai_realtime 인데 OPENAI_API_KEY가 없습니다. .env에 키를 주입하세요.")
         from .openai_realtime_stt import OpenAIRealtimeSTT
         return OpenAIRealtimeSTT(model=cfg.stt_model, api_key=cfg.openai_api_key)
+    if name == "deepgram":
+        if not cfg.deepgram_api_key:
+            raise RuntimeError("STT_PROVIDER=deepgram 인데 DEEPGRAM_API_KEY가 없습니다.")
+        from .deepgram_stt import DeepgramSTT
+        model = cfg.stt_model if cfg.stt_model and not cfg.stt_model.startswith("gpt") else "nova-3"
+        return DeepgramSTT(api_key=cfg.deepgram_api_key, model=model)
+    if name == "assemblyai":
+        if not cfg.assemblyai_api_key:
+            raise RuntimeError("STT_PROVIDER=assemblyai 인데 ASSEMBLYAI_API_KEY가 없습니다.")
+        from .assemblyai_stt import AssemblyAISTT
+        model = cfg.stt_model if cfg.stt_model and not cfg.stt_model.startswith("gpt") else "universal-streaming"
+        return AssemblyAISTT(api_key=cfg.assemblyai_api_key, model=model)
     if name == "mock":
         from .mock_stt import MockSTT
         return MockSTT()
-    raise RuntimeError(f'알 수 없는 STT_PROVIDER: "{name}" (사용 가능: openai, openai_realtime, mock)')
+    raise RuntimeError(
+        f'알 수 없는 STT_PROVIDER: "{name}" '
+        "(사용 가능: openai, openai_realtime, deepgram, assemblyai, mock)"
+    )
 
 
 __all__ = ["get_stt_provider", "STTEvent", "STTProvider"]

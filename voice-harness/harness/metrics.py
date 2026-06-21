@@ -13,6 +13,15 @@ def now() -> float:
     return time.perf_counter()
 
 
+def slug(x: str) -> str:
+    return "".join(c if c.isalnum() else "-" for c in (x or "na")).strip("-").lower() or "na"
+
+
+def combo_id(stt_model: str, llm_model: str, tts_model: str) -> str:
+    """API 조합 식별 슬러그 — 출력 폴더/구분용. 조합마다 폴더가 갈려 충돌 없음."""
+    return f"{slug(stt_model)}__{slug(llm_model)}__{slug(tts_model)}"
+
+
 @dataclass
 class TurnMetrics:
     """한 번의 STT→LLM→TTS 턴에서 찍는 타임스탬프와 파생 지연.
@@ -48,6 +57,10 @@ class TurnMetrics:
     t_tts_done: Optional[float] = None    # 마지막 오디오 청크
 
     # 부가
+    run_id: str = ""
+    timestamp: str = ""
+    input_audio_sec: Optional[float] = None   # 입력 발화 길이
+    output_audio_sec: Optional[float] = None  # 응답 음성 길이
     audio_out_path: str = ""
     error: str = ""
     extra: dict = field(default_factory=dict)
@@ -101,6 +114,34 @@ class TurnMetrics:
     def turn_total(self) -> Optional[float]:
         return self._d(self.t_start, self.t_tts_done)
 
+    # --- LLM 토큰·응답 길이 (moly-server usage 노출) ---
+    @property
+    def llm_in_tok(self) -> Optional[int]:
+        u = self.extra.get("llm_usage")
+        return u.get("input_tokens") if isinstance(u, dict) else None
+
+    @property
+    def llm_out_tok(self) -> Optional[int]:
+        u = self.extra.get("llm_usage")
+        return u.get("output_tokens") if isinstance(u, dict) else None
+
+    @property
+    def response_len_chars(self) -> int:
+        return len(self.reply or "")
+
+    @property
+    def tokens_per_sec(self) -> Optional[float]:
+        """출력 토큰 / (첫 토큰→완료). 길어질수록 대기에 직결."""
+        out = self.llm_out_tok
+        gen = self._d(self.t_llm_first, self.t_llm_done)
+        if out and gen and gen > 0:
+            return round(out / gen, 1)
+        return None
+
+    @property
+    def success(self) -> bool:
+        return not self.error
+
     def derived(self) -> dict:
         return {
             "stt_ttfb": self.stt_ttfb,
@@ -113,6 +154,7 @@ class TurnMetrics:
             "stt_tail": self.stt_tail,
             "e2e_speech_end": self.e2e_speech_end,
             "turn_total": self.turn_total,
+            "tokens_per_sec": self.tokens_per_sec,
         }
 
     # --- 출력 ---
@@ -141,36 +183,48 @@ class TurnMetrics:
         return lines
 
     def to_row(self) -> dict:
+        def blank(v):
+            return "" if v is None else v
         row = {
+            "run_id": self.run_id,
+            "timestamp": self.timestamp,
             "input_label": self.input_label,
             "stt_provider": self.stt_provider,
             "stt_model": self.stt_model,
+            "llm_model": self.llm_model,
             "tts_provider": self.tts_provider,
             "tts_model": self.tts_model,
-            "llm_model": self.llm_model,
+            "success": int(self.success),
             "transcript": self.transcript,
             "reply": self.reply,
             "error": self.error,
         }
-        row.update({k: (v if v is not None else "") for k, v in self.derived().items()})
-        # 부분 실측 비용(파이프라인 STT+TTS). pipeline.run_turn이 extra에 채운다. 없으면 빈칸.
+        row.update({k: blank(v) for k, v in self.derived().items()})
+        # 토큰·응답 길이·오디오 길이
+        row["llm_in_tok"] = blank(self.llm_in_tok)
+        row["llm_out_tok"] = blank(self.llm_out_tok)
+        row["response_len_chars"] = self.response_len_chars
+        row["input_audio_sec"] = blank(self.input_audio_sec)
+        row["output_audio_sec"] = blank(self.output_audio_sec)
+        # 비용 (pipeline.run_turn이 extra에 채움)
         row["cost_usd"] = self.extra.get("cost_usd", "")
+        row["cost_stt"] = self.extra.get("cost_stt", "")
+        row["cost_llm"] = self.extra.get("cost_llm", "")
+        row["cost_tts"] = self.extra.get("cost_tts", "")
         return row
 
 
-def write_outputs(m: TurnMetrics, out_dir: str) -> tuple[str, str]:
-    """턴 메트릭을 JSON(개별) + CSV(누적)로 기록. 경로 반환."""
-    os.makedirs(out_dir, exist_ok=True)
-    ts = time.strftime("%Y%m%d-%H%M%S")
-    json_path = os.path.join(out_dir, f"turn-{ts}.json")
-    with open(json_path, "w", encoding="utf-8") as f:
-        json.dump({**asdict(m), "derived": m.derived()}, f, ensure_ascii=False, indent=2)
+def write_outputs(m: TurnMetrics, out_dir: str) -> str:
+    """턴 메트릭을 단일 metrics.csv에 누적(append). csv 경로 반환.
 
+    행은 조합 컬럼(stt_model/llm_model/tts_model)으로 구분된다. 음성 파일은
+    pipeline이 runs/audio/{combo}/ 아래 조합별로 분리 저장(충돌 없음).
+    """
+    os.makedirs(out_dir, exist_ok=True)
     csv_path = os.path.join(out_dir, "metrics.csv")
     row = m.to_row()
-    fields = list(row.keys())
-    _append_csv_row(csv_path, fields, row)
-    return json_path, csv_path
+    _append_csv_row(csv_path, list(row.keys()), row)
+    return csv_path
 
 
 def _read_header(path: str) -> Optional[list[str]]:

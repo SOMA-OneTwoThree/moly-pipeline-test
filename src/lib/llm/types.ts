@@ -9,9 +9,20 @@ export interface ChatMessage {
   content: string;
 }
 
+/** 응답 종료 시 보고되는 토큰 usage(비용·속도 측정용). */
+export interface TokenUsage {
+  model?: string;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_input_tokens?: number;
+  cache_creation_input_tokens?: number;
+}
+
 export interface LLMOptions {
   /** 취소 신호. yield 사이에서 확인하여 중단 시 즉시 정리한다. */
   signal?: AbortSignal;
+  /** 스트림 정상 종료 직전 토큰 usage를 1회 보고한다(provider가 제공 시). */
+  onUsage?: (usage: TokenUsage) => void;
 }
 
 export interface LLMProvider {
