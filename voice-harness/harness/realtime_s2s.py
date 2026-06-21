@@ -66,11 +66,15 @@ class S2SResult:
 
 
 class RealtimeS2S:
-    def __init__(self, api_key: str, model: str = "", voice: str = "", debug: bool = False) -> None:
+    def __init__(self, api_key: str, model: str = "", voice: str = "", debug: bool = False,
+                 effort: str = "") -> None:
         self.api_key = api_key
         self.model = model or _DEFAULT_MODEL
         self.voice = voice or _DEFAULT_VOICE
         self.debug = debug
+        # reasoning effort(minimal|low|medium|high|xhigh). gpt-realtime-2 등 추론 모델만 의미.
+        # 빈 값이면 미지정(모델 기본값) — v1/1.5는 reasoning 미지원이라 보내지 않는다.
+        self.effort = effort.strip()
 
     def converse(self, audio_path: str, out_dir: str = "runs") -> S2SResult:
         r = S2SResult()
@@ -170,24 +174,25 @@ class RealtimeS2S:
             handle(json.loads(raw))
 
     def _session_update(self) -> dict:
-        return {
-            "type": "session.update",
-            "session": {
-                "type": "realtime",
-                "output_modalities": ["audio"],
-                "instructions": _INSTRUCTIONS,
-                "audio": {
-                    "input": {
-                        "format": {"type": "audio/pcm", "rate": _SR},
-                        "turn_detection": None,  # VAD 비활성 — 파일 전체를 한 턴으로 보고 수동 commit+response
-                    },
-                    "output": {
-                        "format": {"type": "audio/pcm", "rate": _SR},
-                        "voice": self.voice,
-                    },
+        session: dict = {
+            "type": "realtime",
+            "output_modalities": ["audio"],
+            "instructions": _INSTRUCTIONS,
+            "audio": {
+                "input": {
+                    "format": {"type": "audio/pcm", "rate": _SR},
+                    "turn_detection": None,  # VAD 비활성 — 파일 전체를 한 턴으로 보고 수동 commit+response
+                },
+                "output": {
+                    "format": {"type": "audio/pcm", "rate": _SR},
+                    "voice": self.voice,
                 },
             },
         }
+        # 추론 모델(gpt-realtime-2)일 때만 effort 전달. 미지원 모델에 보내면 거부될 수 있어 옵션.
+        if self.effort:
+            session["reasoning"] = {"effort": self.effort}
+        return {"type": "session.update", "session": session}
 
     @staticmethod
     def _append(chunk: bytes) -> str:
