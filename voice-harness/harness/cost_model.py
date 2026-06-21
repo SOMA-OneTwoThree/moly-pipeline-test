@@ -207,6 +207,11 @@ _LLM_RATES: dict[str, tuple[float, float, float]] = {
     "haiku": (1.0, 5.0, 0.10),
     "gemini-flash-lite": (0.10, 0.40, 0.01),  # Gemini 2.5 Flash-Lite
     "gemini-flash": (0.30, 2.50, 0.075),      # Gemini 2.5 Flash (근사)
+    # Groq (근사, 2026-06)
+    "groq-llama-8b": (0.05, 0.08, 0.0),
+    "groq-llama-70b": (0.59, 0.79, 0.0),
+    "groq-qwen": (0.29, 0.59, 0.0),
+    "groq-gpt-oss": (0.15, 0.75, 0.0),
 }
 
 
@@ -216,6 +221,12 @@ def _llm_rate(model: str) -> tuple[float, float, float]:
         return _LLM_RATES["gemini-flash-lite"] if "lite" in m else _LLM_RATES["gemini-flash"]
     if "haiku" in m:
         return _LLM_RATES["haiku"]
+    if "qwen" in m:
+        return _LLM_RATES["groq-qwen"]
+    if "gpt-oss" in m:
+        return _LLM_RATES["groq-gpt-oss"]
+    if "llama" in m:
+        return _LLM_RATES["groq-llama-8b"] if ("8b" in m or "instant" in m) else _LLM_RATES["groq-llama-70b"]
     return _LLM_RATES["sonnet"]  # 기본/sonnet
 
 
