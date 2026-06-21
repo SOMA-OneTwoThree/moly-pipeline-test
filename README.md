@@ -4,6 +4,11 @@
 - LLM은 추상화되어 있어 env로 교체 가능 (`mock` ↔ `anthropic`)
 - 단일턴: 요청은 `{ text }`, 응답은 텍스트 delta **SSE 스트림**
 
+## 구성
+
+- `/` — moly-server: 텍스트 입력 → LLM → SSE 스트림 (아래 연동 계약)
+- `voice-harness/` — 음성 파이프라인(STT·LLM·TTS)과 S2S의 지연·비용 측정 도구 ([README](voice-harness/README.md))
+
 ---
 
 ## 연동 계약 (STT/TTS가 소비)
