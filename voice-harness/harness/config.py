@@ -26,6 +26,8 @@ class Config:
     stt_provider: str
     tts_provider: str
     openai_api_key: str
+    elevenlabs_api_key: str
+    elevenlabs_agent_id: str
     stt_model: str
     stt_language: str
     tts_model: str
@@ -41,6 +43,8 @@ class Config:
             stt_provider=_env("STT_PROVIDER", "openai").lower(),
             tts_provider=_env("TTS_PROVIDER", "openai").lower(),
             openai_api_key=_env("OPENAI_API_KEY"),
+            elevenlabs_api_key=_env("ELEVENLABS_API_KEY"),
+            elevenlabs_agent_id=_env("ELEVENLABS_AGENT_ID"),
             stt_model=_env("STT_MODEL", "gpt-4o-transcribe"),
             stt_language=_env("STT_LANGUAGE", ""),
             tts_model=_env("TTS_MODEL", "gpt-4o-mini-tts"),
