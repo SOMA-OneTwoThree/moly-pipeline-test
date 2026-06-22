@@ -1,6 +1,8 @@
 export const runtime = 'nodejs';
 
+import { after } from 'next/server';
 import { generateReplyStream } from '@/lib/chat/service';
+import { addMemory } from '@/lib/memory/mem0';
 import type { TokenUsage } from '@/lib/llm';
 
 /** 입력 상한(문자 수). 초과 시 스트림 시작 전 400. */
@@ -25,9 +27,14 @@ function sse(data: unknown): Uint8Array {
 export async function POST(request: Request): Promise<Response> {
   // 1) 입력 파싱/검증 — 스트림 시작 전(여기서 실패하면 JSON 에러 응답).
   let text: unknown;
+  let userId: string | undefined;
   try {
-    const body = (await request.json()) as { text?: unknown };
+    const body = (await request.json()) as { text?: unknown; user_id?: unknown };
     text = body?.text;
+    userId =
+      typeof body?.user_id === 'string' && body.user_id.trim().length > 0
+        ? body.user_id.trim()
+        : undefined;
   } catch {
     return jsonError('잘못된 JSON 본문입니다.', 400);
   }
@@ -42,8 +49,10 @@ export async function POST(request: Request): Promise<Response> {
   const signal = request.signal;
   // LLM provider가 종료 직전 보고하는 토큰 usage를 캡처해 done 이벤트에 실어준다(비용·tokens/sec 측정용).
   let usage: TokenUsage | null = null;
+  let reply = ''; // assistant 응답 누적 → 응답 flush 후 Mem0에 적재.
   const iterator = generateReplyStream(text, {
     signal,
+    userId,
     onUsage: (u) => {
       usage = u;
     },
@@ -74,6 +83,7 @@ export async function POST(request: Request): Promise<Response> {
         controller.enqueue(sse(usage ? { done: true, usage } : { done: true }));
         controller.close();
       } else {
+        reply += first.value;
         controller.enqueue(sse({ delta: first.value }));
       }
     },
@@ -89,6 +99,7 @@ export async function POST(request: Request): Promise<Response> {
           controller.close();
           return;
         }
+        reply += value;
         controller.enqueue(sse({ delta: value }));
       } catch (err) {
         if (signal.aborted) {
@@ -106,6 +117,17 @@ export async function POST(request: Request): Promise<Response> {
       await iterator.return?.();
     },
   });
+
+  // 응답 스트림을 다 보낸 뒤(after) 이번 턴을 Mem0에 적재 — 백그라운드라 사용자 응답엔 지연 0.
+  if (userId) {
+    const turnUserId = userId;
+    const turnUserText = text;
+    after(async () => {
+      if (reply.trim().length > 0) {
+        await addMemory(turnUserId, turnUserText, reply);
+      }
+    });
+  }
 
   return new Response(stream, {
     status: 200,
