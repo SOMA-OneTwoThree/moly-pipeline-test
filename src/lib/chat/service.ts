@@ -49,21 +49,22 @@ Do not reveal internal reasoning.
 Provide only the final user-facing response.`;
 
 /**
- * 공개 코어: 텍스트 입력 → LLM 응답 delta 스트림.
- * - `ChatMessage[]` 구성은 내부에 격리(소비자는 text만 전달).
+ * 공개 코어: 대화 턴(user/assistant) → LLM 응답 delta 스트림.
+ * - 소비자는 대화 히스토리(convo)만 전달, system(페르소나+Mem0 기억)은 서버가 주입.
  * - system 프롬프트는 env `SYSTEM_PROMPT`, 미설정 시 기본값.
  * - delta는 provider에서 받은 그대로 순서대로 전달(서버는 문장 버퍼링 안 함).
  */
 export async function* generateReplyStream(
-  text: string,
+  convo: ChatMessage[],
   opts?: ReplyOptions,
 ): AsyncIterable<string> {
   let systemPrompt = process.env.SYSTEM_PROMPT?.trim() || DEFAULT_SYSTEM_PROMPT;
 
   // userId가 있으면 Mem0에서 관련 기억을 조회해 시스템 프롬프트에 주입(없으면 콜드스타트).
-  // 실패는 [] 로 삼켜 대화를 막지 않는다(fail-safe).
+  // 실패는 [] 로 삼켜 대화를 막지 않는다(fail-safe). 검색 쿼리는 가장 최근 사용자 발화.
   if (opts?.userId) {
-    const memories = await getCachedMemories(opts.userId, text);
+    const lastUser = [...convo].reverse().find((m) => m.role === 'user')?.content ?? '';
+    const memories = await getCachedMemories(opts.userId, lastUser);
     if (memories.length > 0) {
       systemPrompt +=
         '\n\n# What you remember about this person\n' +
@@ -71,10 +72,8 @@ export async function* generateReplyStream(
     }
   }
 
-  const messages: ChatMessage[] = [
-    { role: 'system', content: systemPrompt },
-    { role: 'user', content: text },
-  ];
+  // 서버가 소유한 system(페르소나+기억) + 클라이언트가 보낸 대화 히스토리(user/assistant).
+  const messages: ChatMessage[] = [{ role: 'system', content: systemPrompt }, ...convo];
 
   yield* getProvider().generateStream(messages, opts);
 }

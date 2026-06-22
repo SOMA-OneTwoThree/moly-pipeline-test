@@ -3,10 +3,13 @@ export const runtime = 'nodejs';
 import { after } from 'next/server';
 import { generateReplyStream } from '@/lib/chat/service';
 import { addMemory, refreshMemoryCache } from '@/lib/memory/mem0';
-import type { TokenUsage } from '@/lib/llm';
+import type { ChatMessage, TokenUsage } from '@/lib/llm';
 
 /** 입력 상한(문자 수). 초과 시 스트림 시작 전 400. */
 const MAX_INPUT_LENGTH = 4000;
+
+/** 대화 히스토리 슬라이딩 윈도우 상한(최근 N개). system은 서버가 별도 주입하므로 항상 유지. */
+const MAX_HISTORY_MESSAGES = 20;
 
 function jsonError(message: string, status: number): Response {
   return new Response(JSON.stringify({ error: message }), {
@@ -20,37 +23,76 @@ function sse(data: unknown): Uint8Array {
 }
 
 /**
- * POST /api/chat — 단일턴 텍스트 인풋 → SSE 텍스트 delta 스트림.
+ * 요청 본문 → 대화 턴 배열로 정규화(OpenAI/Anthropic messages 컨벤션).
+ * - `messages: [{role:'user'|'assistant', content}]` 우선 / `text`는 단일 user 턴으로(하위호환).
+ * - system 역할은 받지 않는다(서버가 페르소나를 소유).
+ * - 슬라이딩 윈도우로 최근 N개만 유지. 현재 턴 = 마지막 user 발화.
+ */
+function parseConversation(
+  body: { text?: unknown; messages?: unknown },
+): { convo: ChatMessage[]; currentUserText: string } | { error: string } {
+  let convo: ChatMessage[];
+  if (Array.isArray(body.messages)) {
+    convo = [];
+    for (const m of body.messages) {
+      const role = (m as { role?: unknown })?.role;
+      const content = (m as { content?: unknown })?.content;
+      if ((role === 'user' || role === 'assistant') && typeof content === 'string') {
+        convo.push({ role, content });
+      }
+    }
+  } else if (typeof body.text === 'string') {
+    convo = [{ role: 'user', content: body.text }];
+  } else {
+    return { error: '`messages`(배열) 또는 `text`(문자열)가 필요합니다.' };
+  }
+
+  if (convo.length > MAX_HISTORY_MESSAGES) {
+    convo = convo.slice(-MAX_HISTORY_MESSAGES); // 슬라이딩 윈도우(최근 N)
+  }
+
+  const lastUser = [...convo].reverse().find((m) => m.role === 'user');
+  if (!lastUser || lastUser.content.trim().length === 0) {
+    return { error: '마지막 사용자 발화(현재 턴)가 비어 있지 않아야 합니다.' };
+  }
+  if (lastUser.content.length > MAX_INPUT_LENGTH) {
+    return { error: `입력이 너무 깁니다(최대 ${MAX_INPUT_LENGTH}자).` };
+  }
+  return { convo, currentUserText: lastUser.content };
+}
+
+/**
+ * POST /api/chat — 대화 입력 → SSE 텍스트 delta 스트림.
+ * 입력: `{ messages: [{role:'user'|'assistant', content}], user_id? }`(OpenAI/Anthropic 컨벤션)
+ *       또는 하위호환 `{ text, user_id? }`(단일 user 턴). system은 서버가 소유.
  * 계약: `data: {"delta":"..."}` (0개 이상) → `data: {"done":true}`,
  *       도중 오류는 `data: {"error":"..."}`로 종료(done 대체). 둘 중 정확히 하나로 끝난다.
  */
 export async function POST(request: Request): Promise<Response> {
   // 1) 입력 파싱/검증 — 스트림 시작 전(여기서 실패하면 JSON 에러 응답).
-  let text: unknown;
-  let userId: string | undefined;
+  let body: { text?: unknown; messages?: unknown; user_id?: unknown };
   try {
-    const body = (await request.json()) as { text?: unknown; user_id?: unknown };
-    text = body?.text;
-    userId =
-      typeof body?.user_id === 'string' && body.user_id.trim().length > 0
-        ? body.user_id.trim()
-        : undefined;
+    body = (await request.json()) as { text?: unknown; messages?: unknown; user_id?: unknown };
   } catch {
     return jsonError('잘못된 JSON 본문입니다.', 400);
   }
 
-  if (typeof text !== 'string' || text.trim().length === 0) {
-    return jsonError('`text`는 비어 있지 않은 문자열이어야 합니다.', 400);
+  const userId =
+    typeof body.user_id === 'string' && body.user_id.trim().length > 0
+      ? body.user_id.trim()
+      : undefined;
+
+  const parsed = parseConversation(body);
+  if ('error' in parsed) {
+    return jsonError(parsed.error, 400);
   }
-  if (text.length > MAX_INPUT_LENGTH) {
-    return jsonError(`입력이 너무 깁니다(최대 ${MAX_INPUT_LENGTH}자).`, 400);
-  }
+  const { convo, currentUserText } = parsed;
 
   const signal = request.signal;
   // LLM provider가 종료 직전 보고하는 토큰 usage를 캡처해 done 이벤트에 실어준다(비용·tokens/sec 측정용).
   let usage: TokenUsage | null = null;
   let reply = ''; // assistant 응답 누적 → 응답 flush 후 Mem0에 적재.
-  const iterator = generateReplyStream(text, {
+  const iterator = generateReplyStream(convo, {
     signal,
     userId,
     onUsage: (u) => {
@@ -121,7 +163,7 @@ export async function POST(request: Request): Promise<Response> {
   // 응답 스트림을 다 보낸 뒤(after) 이번 턴을 Mem0에 적재 — 백그라운드라 사용자 응답엔 지연 0.
   if (userId) {
     const turnUserId = userId;
-    const turnUserText = text;
+    const turnUserText = currentUserText;
     after(async () => {
       if (reply.trim().length > 0) {
         await addMemory(turnUserId, turnUserText, reply);
