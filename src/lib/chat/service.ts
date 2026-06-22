@@ -1,6 +1,6 @@
 import 'server-only';
 import { getProvider, type ChatMessage, type LLMOptions } from '@/lib/llm';
-import { searchMemories } from '@/lib/memory/mem0';
+import { getCachedMemories } from '@/lib/memory/mem0';
 
 /** generateReplyStream 옵션 — LLM 옵션 + 메모리 주입용 userId(있으면 Mem0 조회). */
 export type ReplyOptions = LLMOptions & { userId?: string };
@@ -63,7 +63,7 @@ export async function* generateReplyStream(
   // userId가 있으면 Mem0에서 관련 기억을 조회해 시스템 프롬프트에 주입(없으면 콜드스타트).
   // 실패는 [] 로 삼켜 대화를 막지 않는다(fail-safe).
   if (opts?.userId) {
-    const memories = await searchMemories(opts.userId, text);
+    const memories = await getCachedMemories(opts.userId, text);
     if (memories.length > 0) {
       systemPrompt +=
         '\n\n# What you remember about this person\n' +

@@ -2,7 +2,7 @@ export const runtime = 'nodejs';
 
 import { after } from 'next/server';
 import { generateReplyStream } from '@/lib/chat/service';
-import { addMemory } from '@/lib/memory/mem0';
+import { addMemory, refreshMemoryCache } from '@/lib/memory/mem0';
 import type { TokenUsage } from '@/lib/llm';
 
 /** 입력 상한(문자 수). 초과 시 스트림 시작 전 400. */
@@ -126,6 +126,8 @@ export async function POST(request: Request): Promise<Response> {
       if (reply.trim().length > 0) {
         await addMemory(turnUserId, turnUserText, reply);
       }
+      // 캐시를 최신 검색으로 갱신(stale-while-revalidate) — 다음 턴은 네트워크 없이 즉시 사용.
+      await refreshMemoryCache(turnUserId, turnUserText);
     });
   }
 

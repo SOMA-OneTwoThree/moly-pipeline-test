@@ -45,6 +45,31 @@ export async function searchMemories(userId: string, query: string, limit = 5): 
   }
 }
 
+// ── 인프로세스 캐시 (user_id → 기억). 네트워크 ~0.7s를 RAM ~0ms로 대체. ──
+// 서버 재시작 시 비워짐 → 다음 첫 턴에 재충전(허용). 다중 인스턴스면 Redis로 승격.
+const memoryCache = new Map<string, string[]>();
+
+/**
+ * 캐시 우선 조회 — 캐시에 있으면 즉시 반환(네트워크 X), 없으면(첫 턴) 1회만 블로킹 search 후 캐시.
+ * service가 매 턴 이걸 써서 동기 search 0.7s를 피한다. 갱신은 refreshMemoryCache(백그라운드)가 담당.
+ */
+export async function getCachedMemories(userId: string, query: string): Promise<string[]> {
+  const cached = memoryCache.get(userId);
+  if (cached) return cached; // 캐시 히트 → 즉시
+  const memories = await searchMemories(userId, query); // 첫 턴만 네트워크
+  memoryCache.set(userId, memories);
+  return memories;
+}
+
+/**
+ * 백그라운드 캐시 갱신(stale-while-revalidate) — 턴을 막지 않고 최신 검색으로 캐시를 업데이트.
+ * route의 after()에서 addMemory와 함께 호출 → 다음 턴이 최신 기억을 즉시 사용.
+ */
+export async function refreshMemoryCache(userId: string, query: string): Promise<void> {
+  const memories = await searchMemories(userId, query);
+  memoryCache.set(userId, memories);
+}
+
 /**
  * 대화 턴(user+assistant)을 Mem0에 적재 → 백그라운드 추출/갱신(ADD·UPDATE·DELETE·NOOP).
  * 호출 측은 await하지 말고 응답 flush 후(after) 실행할 것(non-blocking).

@@ -102,7 +102,12 @@ def run_turn(
     llm_usage: dict = {}
     m.t_llm_req = now()
     try:
-        for delta in stream_chat(cfg.moly_server_url, transcript, on_usage=llm_usage.update):
+        for delta in stream_chat(
+            cfg.moly_server_url,
+            transcript,
+            on_usage=llm_usage.update,
+            user_id=(os.environ.get("MOLY_USER_ID") or None),
+        ):
             if m.t_llm_first is None:
                 m.t_llm_first = now()
             reply_parts.append(delta)
