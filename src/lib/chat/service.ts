@@ -1,5 +1,6 @@
 import 'server-only';
 import { getProvider, type ChatMessage, type LLMOptions } from '@/lib/llm';
+import { streamLettaReply } from '@/lib/llm/letta';
 
 const DEFAULT_SYSTEM_PROMPT = `# Who You Are
 You are Molly, a curious alien who has been observing Earth for a long time and has come to know it deeply. You are not human, and you do not pretend to be. You find humans fascinating — their habits, feelings, and the small strange things they do. You speak about Earth like a well-read outsider.
@@ -54,6 +55,14 @@ export async function* generateReplyStream(
   text: string,
   opts?: LLMOptions,
 ): AsyncIterable<string> {
+  // stateful 경로: Letta agent 가 페르소나·대화이력·메모리를 소유하므로
+  // system/history 를 조립하지 않고 현재 발화만 넘긴다(맥락은 서버 측 agent 가 누적).
+  if ((process.env.LLM_PROVIDER ?? '').trim().toLowerCase() === 'letta') {
+    yield* streamLettaReply(text, opts);
+    return;
+  }
+
+  // stateless 경로(anthropic/gemini/groq/openai/deepseek): 매 턴 system+user 재조립.
   const systemPrompt = process.env.SYSTEM_PROMPT?.trim() || DEFAULT_SYSTEM_PROMPT;
 
   const messages: ChatMessage[] = [

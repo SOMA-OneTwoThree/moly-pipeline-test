@@ -11,6 +11,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.105.0",
     "@google/genai": "^2.9.0",
+    "@letta-ai/letta-client": "^1.12.1",
     "next": "16.2.9",
     "openai": "^6.44.0",
     "react": "19.2.4",

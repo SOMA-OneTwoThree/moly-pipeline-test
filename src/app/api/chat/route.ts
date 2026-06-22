@@ -25,9 +25,14 @@ function sse(data: unknown): Uint8Array {
 export async function POST(request: Request): Promise<Response> {
   // 1) 입력 파싱/검증 — 스트림 시작 전(여기서 실패하면 JSON 에러 응답).
   let text: unknown;
+  let agentId: string | undefined;
   try {
-    const body = (await request.json()) as { text?: unknown };
+    const body = (await request.json()) as { text?: unknown; agentId?: unknown; sessionId?: unknown };
     text = body?.text;
+    // stateful(letta) provider 용 대화 식별자. 둘 다 선택적이며 미전달 시 env 기본 agent 폴백.
+    // 하니스의 `{text}`-only 호출과 하위호환 유지.
+    const id = body?.agentId ?? body?.sessionId;
+    if (typeof id === 'string' && id.trim().length > 0) agentId = id.trim();
   } catch {
     return jsonError('잘못된 JSON 본문입니다.', 400);
   }
@@ -44,6 +49,7 @@ export async function POST(request: Request): Promise<Response> {
   let usage: TokenUsage | null = null;
   const iterator = generateReplyStream(text, {
     signal,
+    agentId,
     onUsage: (u) => {
       usage = u;
     },

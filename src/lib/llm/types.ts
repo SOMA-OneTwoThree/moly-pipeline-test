@@ -23,6 +23,12 @@ export interface LLMOptions {
   signal?: AbortSignal;
   /** 스트림 정상 종료 직전 토큰 usage를 1회 보고한다(provider가 제공 시). */
   onUsage?: (usage: TokenUsage) => void;
+  /**
+   * stateful provider(letta)에서 대화/사용자를 식별하는 agent id.
+   * 미지정 시 provider 가 env 기본값(LETTA_AGENT_ID)으로 폴백한다.
+   * stateless provider 는 이 값을 무시한다.
+   */
+  agentId?: string;
 }
 
 export interface LLMProvider {
